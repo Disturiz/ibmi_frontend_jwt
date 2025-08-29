@@ -1,0 +1,11 @@
+/* Animaciones fondo aurora */
+@keyframes auroraFloat1 { 0%,100% { transform: translate3d(0,0,0) scale(1);} 50% { transform: translate3d(-14px,12px,0) scale(1.05);} }
+@keyframes auroraFloat2 { 0%,100% { transform: translate3d(0,0,0) scale(1);} 50% { transform: translate3d(16px,6px,0) scale(1.03);} }
+@keyframes auroraFloat3 { 0%,100% { transform: translate3d(0,0,0) scale(1);} 50% { transform: translate3d(10px,-12px,0) scale(1.04);} }
+@keyframes auroraTwinkle { 0%,100% { opacity:.55;} 50% { opacity:.85;} }
+
+.aurora-float-1 { animation: auroraFloat1 16s ease-in-out infinite; will-change: transform; }
+.aurora-float-2 { animation: auroraFloat2 18s ease-in-out infinite; will-change: transform; }
+.aurora-float-3 { animation: auroraFloat3 22s ease-in-out infinite; will-change: transform; }
+.aurora-twinkle { animation: auroraTwinkle 12s ease-in-out infinite; }
+/* c:\Users\distu\OneDrive\Documentos\ibmi_frontend_jwt_autocomplete\src\ui\aurora.css */
