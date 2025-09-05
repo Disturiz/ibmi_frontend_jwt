@@ -1,8 +1,6 @@
-
 import React, { useEffect, useState } from "react";
 import AuroraBackground from "../ui/AuroraBackground.jsx";
 import SiteHeader from "../ui/SiteHeader.jsx";
-
 
 const getApiBase = () => {
   const raw = (import.meta.env.VITE_API_BASE || "").trim();
@@ -23,13 +21,16 @@ const post = async (path, body, token) => {
   return res.blob();
 };
 
-const useDebounce = (value, delay=300) => {
+const useDebounce = (value, delay = 300) => {
   const [v, setV] = useState(value);
-  useEffect(() => { const id = setTimeout(() => setV(value), delay); return () => clearTimeout(id); }, [value, delay]);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
   return v;
 };
 
-export default function IBMiApp(){
+export default function IBMiApp() {
   const [step, setStep] = useState("login");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,25 +52,28 @@ export default function IBMiApp(){
   const debLib = useDebounce(library, 350);
   const debTable = useDebounce(table, 350);
 
+  // MOVIDO AQUÍ: hook de estado para el mensaje del ETL
+  const [etlMsg, setEtlMsg] = useState("");
+
   const logout = () => { setToken(""); sessionStorage.removeItem("ibmi_token"); setStep("login"); };
 
   const onLogin = async (e) => {
     e.preventDefault(); setError("");
-    if(!host || !user || !password){ setError("Host, usuario y contraseña son obligatorios."); return; }
-    try{
+    if (!host || !user || !password) { setError("Host, usuario y contraseña son obligatorios."); return; }
+    try {
       setLoading(true);
-      const data = await post("/login", {host, user, password});
+      const data = await post("/login", { host, user, password });
       setToken(data.access_token);
       sessionStorage.setItem("ibmi_token", data.access_token);
       setStep("params");
-    }catch(err){ setError(String(err.message||err)); }
-    finally{ setLoading(false); }
+    } catch (err) { setError(String(err.message || err)); }
+    finally { setLoading(false); }
   };
 
   const onExtract = async (e) => {
     e.preventDefault(); setError("");
-    if(!library || !table){ setError("Library y Table son obligatorios."); return; }
-    try{
+    if (!library || !table) { setError("Library y Table son obligatorios."); return; }
+    try {
       setLoading(true);
       const data = await post("/extract?format=json",
         { library: library.toUpperCase(), table: table.toUpperCase(), limit },
@@ -77,21 +81,21 @@ export default function IBMiApp(){
       );
       setCount(data.count || 0);
       setPreview((data.rows || []).slice(0, 20));
-    }catch(err){ setError(String(err.message||err)); }
-    finally{ setLoading(false); }
+    } catch (err) { setError(String(err.message || err)); }
+    finally { setLoading(false); }
   };
 
   const download = async (format, ext) => {
     setError("");
-    try{
+    try {
       const blob = await post(`/extract?format=${format}`,
         { library: library.toUpperCase(), table: table.toUpperCase(), limit },
         token
       );
       const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url;
-      const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+      const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
       a.download = `${library}_${table}_${ts}.${ext}`; a.click(); URL.revokeObjectURL(url);
-    }catch(err){ setError(`${format.toUpperCase()}: ${String(err.message||err)}`); }
+    } catch (err) { setError(`${format.toUpperCase()}: ${String(err.message || err)}`); }
   };
 
   useEffect(() => {
@@ -99,10 +103,10 @@ export default function IBMiApp(){
     const pat = debLib.trim().toUpperCase();
     if (!pat) { setSchemaOpts([]); return; }
     (async () => {
-      try{
-        const out = await post("/catalog/schemas", { pattern: pat+"%" }, token);
-        setSchemaOpts(out.schemas||[]);
-      }catch{}
+      try {
+        const out = await post("/catalog/schemas", { pattern: pat + "%" }, token);
+        setSchemaOpts(out.schemas || []);
+      } catch { }
     })();
   }, [debLib, token]);
 
@@ -112,12 +116,47 @@ export default function IBMiApp(){
     const pat = debTable.trim().toUpperCase();
     if (!lib || !pat) { setTableOpts([]); return; }
     (async () => {
-      try{
-        const out = await post("/catalog", { library: lib, pattern: pat+"%", limit: 20 }, token);
-        setTableOpts((out.items||[]).map(x => x.table));
-      }catch{}
+      try {
+        const out = await post("/catalog", { library: lib, pattern: pat + "%", limit: 20 }, token);
+        setTableOpts((out.items || []).map(x => x.table));
+      } catch { }
     })();
   }, [debLib, debTable, token]);
+
+  // Disparar workflow de n8n
+  const sendToN8n = async () => {
+  setError(""); setEtlMsg("");
+
+  try {
+    // 1) Trae filas frescas del backend según los parámetros actuales
+    const lib = library.toUpperCase();
+    const tbl = table.toUpperCase();
+    const data = await post("/extract?format=json",
+      { library: lib, table: tbl, limit },
+      token
+    );
+
+    const rowsToSend = Array.isArray(data?.rows) ? data.rows : [];
+
+    if (!rowsToSend.length) {
+      setError("Error ETL: no hay filas para enviar (consulta vacía).");
+      return;
+    }
+
+    // 2) Envía a n8n (ideal: via proxy del backend)
+    await post("/etl/ingest", {
+      library: lib,
+      table: tbl,
+      limit,
+      rows: rowsToSend,   // ← ahora sí con datos reales
+    }, token);
+
+    setEtlMsg("✅ Datos enviados correctamente a n8n.");
+  } catch (err) {
+    setError("Error ETL: " + String(err.message || err));
+  }
+};
+
 
   return (
     <AuroraBackground>
@@ -135,38 +174,38 @@ export default function IBMiApp(){
 
         {error && <div className="bg-red-50 text-red-700 p-3 rounded-xl mb-4 text-sm">{error}</div>}
 
-        {step==="login" && (
+        {step === "login" && (
           <form onSubmit={onLogin} className="grid gap-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-3">
                 <label className="block text-sm font-medium">Host (IBM i)</label>
-                <input className="mt-1 w-full border rounded-xl p-2" placeholder="PUB400.COM o IP" value={host} onChange={e=>setHost(e.target.value)} />
+                <input className="mt-1 w-full border rounded-xl p-2" placeholder="PUB400.COM o IP" value={host} onChange={e => setHost(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm font-medium">Usuario IBM i</label>
-                <input className="mt-1 w-full border rounded-xl p-2" value={user} onChange={e=>setUser(e.target.value)} />
+                <input className="mt-1 w-full border rounded-xl p-2" value={user} onChange={e => setUser(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm font-medium">Contraseña</label>
-                <input type="password" className="mt-1 w-full border rounded-xl p-2" value={password} onChange={e=>setPassword(e.target.value)} />
+                <input type="password" className="mt-1 w-full border rounded-xl p-2" value={password} onChange={e => setPassword(e.target.value)} />
               </div>
             </div>
             <div className="flex gap-3">
-              <button disabled={loading} className="bg-black text-white rounded-xl px-4 py-2 disabled:opacity-60">{loading?'Validando...':'Iniciar sesión'}</button>
+              <button disabled={loading} className="bg-black text-white rounded-xl px-4 py-2 disabled:opacity-60">{loading ? 'Validando...' : 'Iniciar sesión'}</button>
             </div>
           </form>
         )}
 
-        {step==="params" && token && (
+        {step === "params" && token && (
           <form onSubmit={onExtract} className="grid gap-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="relative">
                 <label className="block text-sm font-medium">Library</label>
-                <input className="mt-1 w-full border rounded-xl p-2" placeholder="QIWS o tu lib" value={library} onChange={e=>setLibrary(e.target.value)} />
-                {schemaOpts.length>0 && (
+                <input className="mt-1 w-full border rounded-xl p-2" placeholder="QIWS o tu lib" value={library} onChange={e => setLibrary(e.target.value)} />
+                {schemaOpts.length > 0 && (
                   <div className="absolute z-10 bg-white border rounded-xl w-full max-h-48 overflow-auto">
-                    {schemaOpts.map((s,i)=>(
-                      <div key={i} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onClick={()=>{ setLibrary(s); setSchemaOpts([]); }}>
+                    {schemaOpts.map((s, i) => (
+                      <div key={i} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onClick={() => { setLibrary(s); setSchemaOpts([]); }}>
                         {s}
                       </div>
                     ))}
@@ -175,11 +214,11 @@ export default function IBMiApp(){
               </div>
               <div className="relative">
                 <label className="block text-sm font-medium">Table</label>
-                <input className="mt-1 w-full border rounded-xl p-2" placeholder="QCUSTCDT o tu tabla" value={table} onChange={e=>setTable(e.target.value)} />
-                {tableOpts.length>0 && (
+                <input className="mt-1 w-full border rounded-xl p-2" placeholder="QCUSTCDT o tu tabla" value={table} onChange={e => setTable(e.target.value)} />
+                {tableOpts.length > 0 && (
                   <div className="absolute z-10 bg-white border rounded-xl w-full max-h-48 overflow-auto">
-                    {tableOpts.map((t,i)=>(
-                      <div key={i} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onClick={()=>{ setTable(t); setTableOpts([]); }}>
+                    {tableOpts.map((t, i) => (
+                      <div key={i} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onClick={() => { setTable(t); setTableOpts([]); }}>
                         {t}
                       </div>
                     ))}
@@ -188,30 +227,42 @@ export default function IBMiApp(){
               </div>
               <div>
                 <label className="block text-sm font-medium">Límite</label>
-                <input type="number" min={1} max={5000} className="mt-1 w-full border rounded-xl p-2" value={limit} onChange={e=>setLimit(parseInt(e.target.value||'0',10))} />
+                <input type="number" min={1} max={5000} className="mt-1 w-full border rounded-xl p-2" value={limit} onChange={e => setLimit(parseInt(e.target.value || '0', 10))} />
               </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <button type="button" className="rounded-xl px-4 py-2 border" onClick={()=>setStep("login")}>Atrás</button>
-              <button disabled={loading} className="bg-black text-white rounded-xl px-4 py-2 disabled:opacity-60">{loading?'Consultando...':'Consultar (preview)'}</button>
-              <button type="button" className="rounded-xl px-4 py-2 border" onClick={()=>download('csv','csv')}>CSV</button>
-              <button type="button" className="rounded-xl px-4 py-2 border" onClick={()=>download('xlsx','xlsx')}>XLSX</button>
-              <button type="button" className="rounded-xl px-4 py-2 border" onClick={async ()=>{
-                try{
+              <button type="button" className="rounded-xl px-4 py-2 border" onClick={() => setStep("login")}>Atrás</button>
+              <button disabled={loading} className="bg-black text-white rounded-xl px-4 py-2 disabled:opacity-60">
+                {loading ? 'Consultando...' : 'Consultar (preview)'}
+              </button>
+              <button type="button" className="rounded-xl px-4 py-2 border" onClick={() => download('csv', 'csv')}>CSV</button>
+              <button type="button" className="rounded-xl px-4 py-2 border" onClick={() => download('xlsx', 'xlsx')}>XLSX</button>
+
+              {/* Disparar workflow n8n */}
+              <button type="button" className="rounded-xl px-4 py-2 border" onClick={sendToN8n}>
+                Enviar a n8n
+              </button>
+
+              {/* Descargar JSON local */}
+              <button type="button" className="rounded-xl px-4 py-2 border" onClick={async () => {
+                try {
                   const data = await post("/extract?format=json",
                     { library: library.toUpperCase(), table: table.toUpperCase(), limit },
                     token
                   );
                   const pretty = JSON.stringify(data, null, 2);
-                  const blob = new Blob([pretty], {type:"application/json"});
+                  const blob = new Blob([pretty], { type: "application/json" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a"); a.href = url;
-                  const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+                  const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
                   a.download = `${library}_${table}_${ts}.json`; a.click(); URL.revokeObjectURL(url);
-                }catch(err){ setError(`JSON: ${String(err.message||err)}`); }
-              }}>JSON</button>
+                } catch (err) { setError(`JSON: ${String(err.message || err)}`); }
+              }}>Descargar JSON</button>
             </div>
+
+            {/* Mensaje de éxito del ETL */}
+            {etlMsg && <div className="bg-green-50 text-green-700 p-3 rounded-xl mt-3 text-sm">{etlMsg}</div>}
 
             {(count || preview.length) > 0 && (
               <div className="grid gap-3 mt-4">
